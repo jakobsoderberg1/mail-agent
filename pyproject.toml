@@ -1,0 +1,16 @@
+[project]
+name = "mail-agent"
+version = "0.1.0"
+description = "Add your description here"
+readme = "README.md"
+requires-python = ">=3.12"
+dependencies = [
+    "anthropic>=2.1.0",
+    "google-api-python-client>=2.201.0",
+    "google-auth-httplib2>=0.4.4",
+    "google-auth-oauthlib>=1.5.0",
+    "google-cloud-firestore>=2.34.1",
+    "python-dotenv>=1.2.4",
+    "requests>=2.34.2",
+    "typesafe-sdk>=0.7.5",
+]
