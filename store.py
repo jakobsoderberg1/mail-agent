@@ -1,14 +1,23 @@
 """Firestore-backed state: run cursors, the activity log and calendar proposals."""
 
+import json
+import os
 from datetime import datetime, timezone
 from functools import cache
 
 from google.cloud import firestore
+from google.oauth2 import service_account
 from google.cloud.firestore import FieldFilter
 
 
 @cache
 def db() -> firestore.Client:
+    # Off Google Cloud (e.g. Railway) a service account key comes in via the environment;
+    # on Cloud Run and locally, application default credentials are used.
+    if key_json := os.getenv("GOOGLE_SERVICE_ACCOUNT_JSON"):
+        info = json.loads(key_json)
+        creds = service_account.Credentials.from_service_account_info(info)
+        return firestore.Client(project=info["project_id"], credentials=creds)
     return firestore.Client()
 
 

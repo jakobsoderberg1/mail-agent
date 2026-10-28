@@ -9,3 +9,5 @@ RUN uv sync --locked --no-dev --no-install-project
 COPY *.py ./
 
 ENTRYPOINT ["uv", "run", "--no-sync", "main.py"]
+# Default for Railway; Cloud Run jobs override it with --args=triage / --args=debrief.
+CMD ["run"]

@@ -5,12 +5,13 @@
     uv run main.py triage     # every 15 min: handle approvals + new email
     uv run main.py triage --dry-run   # read-only: print what it would do
     uv run main.py debrief    # weekday mornings: summary + pending approvals
+    uv run main.py run        # every 15 min on Railway: triage, then debrief when due
 """
 
 import html
 import sys
 import traceback
-from datetime import timedelta
+from datetime import datetime, timedelta
 from email.utils import parseaddr
 
 from dotenv import load_dotenv
@@ -141,6 +142,23 @@ def debrief() -> None:
     store.set_state(last_debrief_at=now)
 
 
+def debrief_due(now: datetime) -> bool:
+    """True on weekdays from DEBRIEF_HOUR (Stockholm time) until today's debrief is sent."""
+    local = now.astimezone(agent.TZ)
+    if local.weekday() >= 5 or local.hour < agent.DEBRIEF_HOUR:
+        return False
+    last = store.get_state().get("last_debrief_at")
+    return last is None or last.astimezone(agent.TZ).date() < local.date()
+
+
+def run() -> None:
+    """One scheduler, one job: Railway cron is UTC-only and one schedule per service,
+    so the debrief rides along with triage and stays at 07:00 local across DST."""
+    triage()
+    if debrief_due(store.now()):
+        debrief()
+
+
 def print_chat_ids() -> None:
     for update in telegram_bot.get_updates(0):
         if chat := update.get("message", {}).get("chat"):
@@ -168,6 +186,7 @@ COMMANDS = {
     "chat-id": print_chat_ids,
     "triage": triage,
     "debrief": debrief,
+    "run": run,
 }
 
 
@@ -177,7 +196,7 @@ def main() -> None:
     command = next((a for a in args if not a.startswith("--")), "")
     if command not in COMMANDS or (dry_run and command != "triage"):
         sys.exit(__doc__)
-    reports = command in ("triage", "debrief") and not dry_run
+    reports = command in ("triage", "debrief", "run") and not dry_run
     try:
         COMMANDS[command](dry_run=True) if dry_run else COMMANDS[command]()
     except Exception as e:

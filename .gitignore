@@ -13,3 +13,6 @@ wheels/
 .env
 credentials.json
 token.json
+
+# Railway service account key
+sa-key.json

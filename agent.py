@@ -17,7 +17,7 @@ import telegram_bot
 JEV_MODEL = "jev-1.13.0"  # pinned: scores can shift between Jev releases
 CLAUDE_MODEL = "claude-haiku-5-5"
 TZ = ZoneInfo("Europe/Stockholm")
-DEBRIEF_HOUR = 7  # weekdays; keep in sync with the Cloud Scheduler cron in deploy.sh
+DEBRIEF_HOUR = 7  # weekdays; keep in sync with the Cloud Scheduler cron in deploy.sh (Railway reads it directly)
 
 # Jev answers each Noul with P(yes) in [0, 1]. Tune these with --dry-run, which prints scores.
 ALERT_AT = 0.7  # important >= this: phone alert, left unread
