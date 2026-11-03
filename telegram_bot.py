@@ -58,5 +58,5 @@ def edit_message(message: dict, text: str) -> None:
     try:
         _call("editMessageText", chat_id=message["chat"]["id"],
               message_id=message["message_id"], text=text, disable_web_page_preview=True)
-    except RuntimeError:
-        pass
+    except RuntimeError as e:
+        print(f"Couldn't edit message {message['message_id']}: {e}")

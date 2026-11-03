@@ -77,20 +77,23 @@ def _extract_body(payload: dict) -> str:
     return ""
 
 
-def _find_label_id() -> str | None:
+def _find_label_id(name: str = PROCESSED_LABEL) -> str | None:
     labels = gmail().users().labels().list(userId="me").execute().get("labels", [])
-    return next((label["id"] for label in labels if label["name"] == PROCESSED_LABEL), None)
+    return next((label["id"] for label in labels if label["name"] == name), None)
 
 
 @cache
-def _processed_label_id() -> str:
-    if label_id := _find_label_id():
+def _label_id(name: str, visibility: str = "labelShow") -> str:
+    if label_id := _find_label_id(name):
         return label_id
     created = gmail().users().labels().create(
-        userId="me",
-        body={"name": PROCESSED_LABEL, "labelListVisibility": "labelHide"},
+        userId="me", body={"name": name, "labelListVisibility": visibility},
     ).execute()
     return created["id"]
+
+
+def _processed_label_id() -> str:
+    return _label_id(PROCESSED_LABEL, "labelHide")
 
 
 def unprocessed_unread(limit: int = 50, dry_run: bool = False) -> list[dict]:
@@ -141,6 +144,14 @@ def mark_as_read(message_ids: list[str]) -> None:
 def label_processed(message_ids: list[str]) -> None:
     gmail().users().messages().batchModify(
         userId="me", body={"ids": message_ids, "addLabelIds": [_processed_label_id()]}
+    ).execute()
+
+
+def move_to_label(message_ids: list[str], name: str) -> None:
+    """Gmail's version of moving to a folder: add the label and take it out of the inbox."""
+    gmail().users().messages().batchModify(
+        userId="me",
+        body={"ids": message_ids, "addLabelIds": [_label_id(name)], "removeLabelIds": ["INBOX"]},
     ).execute()
 
 

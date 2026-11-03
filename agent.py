@@ -25,6 +25,8 @@ KEEP_UNREAD_AT = 0.3  # between this and ALERT_AT: left unread, flagged in the d
 SUMMARY_AT = 0.5
 EVENT_AT = 0.6  # shipping notifications scored ~0.5, real deadlines ~0.85+
 BILL_AT = 0.6  # bills and payment requests stay unread
+BILLING_LABEL = "billing"
+IMPORTANT_LABEL = "Important mail"  # "Important" is reserved by Gmail's own label
 
 # Always alert for these, whatever Jev scores: (sender address, text in subject), lowercase.
 ALWAYS_ALERT = [("no-reply@ladok.se", "resultat")]  # new exam results scored ~0.66
@@ -47,16 +49,14 @@ QUESTIONS = {
         },
     ),
     "event": Noul(
-        instructions="Does this email contain a specific meeting, appointment, booking or deadline "
+        instructions="Does this email contain a specific meeting, appointment, booking"
                      "with a date, that concerns the recipient personally and belongs in their "
                      "calendar?",
         criteria={
-            "true": "An appointment, booking, meeting or invitation for the recipient, or a "
-                    "deadline the recipient must act on, such as an exam or course registration "
-                    "deadline or a payment due date.",
+            "true": "An appointment, booking, meeting or invitation for the recipient.",
             "false": "A newsletter or digest listing activities and events, a shipping or "
                      "delivery notification, a marketing event, a sale ending, or something in "
-                     "the past.",
+                     "the past, a deadline for school / university.",
         },
     ),
     "bill": Noul(
@@ -223,7 +223,7 @@ def handle_email(email: dict) -> None:
     sender = parseaddr(email["from"])[0] or address
 
     if important >= ALERT_AT:
-        _send(f"🔔 <b>{html.escape(sender)}</b>: {html.escape(email['subject'])}\n"
+        _send(f"<b>{html.escape(sender)}</b>: {html.escape(email['subject'])}\n"
               f"{html.escape(email['snippet'])}")
         _log("notified", message_id=email["id"], title=sender, message=email["subject"])
 
@@ -231,11 +231,17 @@ def handle_email(email: dict) -> None:
         for event in extract_events(text):
             propose_event(event, email)
 
-    mark_read = important < KEEP_UNREAD_AT and scores["bill"] < BILL_AT
+    mark_read = important < ALERT_AT and scores["bill"] < BILL_AT
     if mark_read and DRY_RUN:
         print("[dry-run] Would mark as read")
     elif mark_read:
         google_api.mark_as_read([email["id"]])
+    for label, moved in ((IMPORTANT_LABEL, important >= ALERT_AT),
+                         (BILLING_LABEL, scores["bill"] >= BILL_AT)):
+        if moved and DRY_RUN:
+            print(f"[dry-run] Would move to {label}")
+        elif moved:
+            google_api.move_to_label([email["id"]], label)
     _log("triaged", message_id=email["id"], sender=email["from"], subject=email["subject"],
          summary=email["subject"], marked_read=mark_read,
          in_summary=scores["summary"] >= SUMMARY_AT, scores=scores)
