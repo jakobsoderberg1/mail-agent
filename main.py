@@ -99,23 +99,19 @@ def format_debrief(items: list[dict], since, pending_count: int) -> str:
         lines.append("\n📅 <b>Calendar</b>")
         lines += [f"• Added: {html.escape(e['summary'])} ({e['start']})" for e in created]
         lines += [f"• Skipped: {html.escape(e['summary'])}" for e in declined]
-    kept = [t for t in triaged if not t.get("marked_read")
-            and t.get("scores", {}).get("important", 1) < agent.ALERT_AT]
-    bills = [t for t in kept if t.get("scores", {}).get("bill", 0) >= agent.BILL_AT]
-    unsure = [t for t in kept if t not in bills]
+    # Below the alert threshold, only bills stay unread.
+    bills = [t for t in triaged if not t.get("marked_read")
+             and t.get("scores", {}).get("important", 1) < agent.ALERT_AT]
     if bills:
         lines.append("\n💳 <b>Bills</b> (left unread)")
         lines += [f"• {_mail_line(t)}" for t in bills]
-    if unsure:
-        lines.append(f"\n🤔 <b>Maybe important</b> (left unread)")
-        lines += [f"• {_mail_line(t)}" for t in unsure]
     alerted = {n["message_id"] for n in notified}
-    listed = [t for t in triaged if t.get("in_summary", True) and t not in kept
+    listed = [t for t in triaged if t.get("in_summary", True) and t not in bills
               and t["message_id"] not in alerted]
     if listed:
         lines.append("\n🗂 <b>Mail</b> (✓ = marked read)")
         lines += [f"{'✓' if t.get('marked_read') else '•'} {_mail_line(t)}" for t in listed]
-    if hidden := len(triaged) - len(listed) - len(kept) - len(alerted & {t["message_id"] for t in triaged}):
+    if hidden := len(triaged) - len(listed) - len(bills) - len(alerted & {t["message_id"] for t in triaged}):
         lines.append(f"\n+ {hidden} newsletters/promotions marked read")
     if pending_count:
         lines.append(f"\n⏳ <b>{pending_count} event(s) waiting for approval</b> below")

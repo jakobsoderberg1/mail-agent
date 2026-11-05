@@ -21,9 +21,8 @@ DEBRIEF_HOUR = 7  # weekdays; keep in sync with the Cloud Scheduler cron in depl
 
 # Jev answers each Noul with P(yes) in [0, 1]. Tune these with --dry-run, which prints scores.
 ALERT_AT = 0.7  # important >= this: phone alert, left unread
-KEEP_UNREAD_AT = 0.3  # between this and ALERT_AT: left unread, flagged in the debrief
 SUMMARY_AT = 0.5
-EVENT_AT = 0.6  # shipping notifications scored ~0.5, real deadlines ~0.85+
+EVENT_AT = 0.6  # shipping notifications scored ~0.5
 BILL_AT = 0.6  # bills and payment requests stay unread
 BILLING_LABEL = "billing"
 IMPORTANT_LABEL = "Important mail"  # "Important" is reserved by Gmail's own label
@@ -49,7 +48,7 @@ QUESTIONS = {
         },
     ),
     "event": Noul(
-        instructions="Does this email contain a specific meeting, appointment, booking"
+        instructions="Does this email contain a specific meeting, appointment, booking "
                      "with a date, that concerns the recipient personally and belongs in their "
                      "calendar?",
         criteria={
@@ -85,11 +84,11 @@ class Events(BaseModel):
 
 
 EXTRACT_PROMPT = """Extract the calendar events from the email below that the recipient should \
-add to their calendar: meetings, appointments, bookings, deadlines they must meet. Skip shipping \
+add to their calendar: meetings, appointments, bookings. Skip deadlines, shipping \
 and delivery notifications, marketing events, sales and anything already in the past. Return an empty list if there are none.
 
 For timed events, start and end are RFC 3339 with timezone offset (assume {tz} if the email \
-doesn't say); if no end time is given, assume one hour. For all-day events and deadlines, set \
+doesn't say); if no end time is given, assume one hour. For all-day events, set \
 all_day and use YYYY-MM-DD, with end the day after. Keep description to one or two lines, \
 including who it's with.
 
@@ -194,7 +193,7 @@ def propose_event(event: Event, email: dict) -> None:
     existing = google_api.list_events(starts.isoformat(), ends.isoformat())
     if any(e.get("summary", "").strip().lower() == p["summary"].strip().lower() for e in existing):
         return  # already in the calendar
-    # Only timed proposals can clash; an all-day deadline "overlaps" everything that day.
+    # Only timed proposals can clash; an all-day event "overlaps" everything that day.
     p["conflicts"] = [] if p["all_day"] else [
         e.get("summary", "(no title)") for e in existing if "dateTime" in e["start"]
     ]

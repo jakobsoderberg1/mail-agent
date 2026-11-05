@@ -7,7 +7,7 @@ of `agent.py`; `--dry-run` prints each email's scores so you can tune them.
 
 - **Important email** → instant Telegram alert (left unread in the inbox)
 - **Everything else** → marked read, one-line summary saved for the debrief
-- **Events / deadlines** → proposed as calendar events with ✅ Add / ❌ Skip buttons.
+- **Events** → proposed as calendar events with ✅ Add / ❌ Skip buttons.
   Sent right away if the event is before the next debrief, otherwise in the debrief.
 - **Morning debrief** → 07:00 Mon–Fri (Europe/Stockholm) on Telegram: alerts, calendar
   changes, every email handled, and pending approvals. Weekend activity rolls into Monday.
