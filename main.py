@@ -4,7 +4,7 @@
     uv run main.py chat-id    # print your Telegram chat id after messaging the bot
     uv run main.py triage     # every 15 min: handle approvals + new email
     uv run main.py triage --dry-run   # read-only: print what it would do
-    uv run main.py debrief    # weekday mornings: summary + pending approvals
+    uv run main.py debrief    # weekday mornings: summary + events that waited for it
     uv run main.py run        # every 15 min on Railway: triage, then debrief when due
 """
 
@@ -55,22 +55,40 @@ def process_approvals() -> None:
     store.set_state(telegram_offset=offset)
 
 
+def expire_proposals() -> None:
+    """Expire pending proposals whose event has started, and take the buttons off their
+    Telegram message. All-day events start at 00:00 local, so they expire that midnight."""
+    now = store.now()
+    for proposal_id, p in store.pending_proposals():
+        starts = agent.proposal_start(p)
+        if not starts or starts >= now:
+            continue
+        if store.claim_proposal(proposal_id, "expired") is None:
+            continue  # tapped in the meantime
+        if message_id := p.get("telegram_message_id"):
+            message = {"chat": {"id": telegram_bot.chat_id()}, "message_id": message_id}
+            telegram_bot.edit_message(message, f"{agent.format_proposal(p)}\n\n⌛ Expired",
+                                      html=True)
+
+
 def triage(dry_run: bool = False) -> None:
     if dry_run:
         agent.DRY_RUN = True
         print("[dry-run] Reading only: no changes to Gmail, Calendar, Firestore or Telegram.")
     else:
         process_approvals()
+        expire_proposals()
     emails = google_api.unprocessed_unread(dry_run=dry_run)
     if not emails:
         print("No new email.")
         return
     agent.run_triage(emails)
     if dry_run:
-        pending = [i["proposal"] for i in agent.dry_activity if i["kind"] == "dry_proposal"]
+        unsent = [i["proposal"] for i in agent.dry_activity
+                  if i["kind"] == "dry_proposal" and not i["proposal"].get("sent_at")]
         print("\n[dry-run] Debrief preview:\n")
-        print(format_debrief(agent.dry_activity, store.now(), len(pending)))
-        for i, p in enumerate(pending):
+        print(format_debrief(agent.dry_activity, store.now(), len(unsent)))
+        for i, p in enumerate(unsent):
             agent.send_proposal(f"dry-{i}", p)
 
 
@@ -79,7 +97,7 @@ def _mail_line(t: dict) -> str:
     return f"{html.escape(sender)}: {html.escape(t['summary'])}"
 
 
-def format_debrief(items: list[dict], since, pending_count: int) -> str:
+def format_debrief(items: list[dict], since, new_proposals: int) -> str:
     by_kind = lambda kind: [i for i in items if i["kind"] == kind]  # noqa: E731
 
     triaged = by_kind("triaged")
@@ -113,8 +131,8 @@ def format_debrief(items: list[dict], since, pending_count: int) -> str:
         lines += [f"{'✓' if t.get('marked_read') else '•'} {_mail_line(t)}" for t in listed]
     if hidden := len(triaged) - len(listed) - len(bills) - len(alerted & {t["message_id"] for t in triaged}):
         lines.append(f"\n+ {hidden} newsletters/promotions marked read")
-    if pending_count:
-        lines.append(f"\n⏳ <b>{pending_count} event(s) waiting for approval</b> below")
+    if new_proposals:
+        lines.append(f"\n📅 <b>{new_proposals} new event(s) to review</b> below")
     return "\n".join(lines)
 
 
@@ -124,16 +142,14 @@ def debrief() -> None:
     since = store.get_state().get("last_debrief_at") or now - timedelta(days=1)
     items = store.activity_since(since)
 
-    pending = []
-    for proposal_id, p in store.pending_proposals():
-        starts = agent.proposal_start(p)
-        if starts and starts < now:
-            store.set_proposal_status(proposal_id, "expired")
-        else:
-            pending.append((proposal_id, p))
+    expire_proposals()
+    # Only proposals that waited for the debrief; ones already sent are never re-sent.
+    # A missing sent_at (proposals from before it existed) counts as already sent.
+    unsent = [(pid, p) for pid, p in store.pending_proposals()
+              if "sent_at" in p and p["sent_at"] is None]
 
-    telegram_bot.send(format_debrief(items, since, len(pending)))
-    for proposal_id, p in pending:
+    telegram_bot.send(format_debrief(items, since, len(unsent)))
+    for proposal_id, p in unsent:
         agent.send_proposal(proposal_id, p)
     store.set_state(last_debrief_at=now)
 

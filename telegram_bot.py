@@ -30,15 +30,18 @@ def _chunks(text: str) -> list[str]:
     return chunks + [current] if current else chunks
 
 
-def send(text: str, buttons: list[list[dict]] | None = None) -> None:
-    """Send an HTML-formatted message; long text is split, buttons go on the last part."""
+def send(text: str, buttons: list[list[dict]] | None = None) -> int | None:
+    """Send an HTML-formatted message; long text is split, buttons go on the last part.
+    Returns the id of the last message sent (the one with the buttons)."""
     chunks = _chunks(text)
+    message_id = None
     for i, chunk in enumerate(chunks):
         params = {"chat_id": chat_id(), "text": chunk, "parse_mode": "HTML",
                   "disable_web_page_preview": True}
         if buttons and i == len(chunks) - 1:
             params["reply_markup"] = {"inline_keyboard": buttons}
-        _call("sendMessage", **params)
+        message_id = _call("sendMessage", **params)["message_id"]
+    return message_id
 
 
 def get_updates(offset: int) -> list[dict]:
@@ -53,10 +56,12 @@ def answer_callback(callback_id: str, text: str) -> None:
         pass  # queries older than a few minutes can't be answered; that's fine
 
 
-def edit_message(message: dict, text: str) -> None:
+def edit_message(message: dict, text: str, html: bool = False) -> None:
     """Replace a message's text, which also removes its buttons."""
+    extra = {"parse_mode": "HTML"} if html else {}
     try:
         _call("editMessageText", chat_id=message["chat"]["id"],
-              message_id=message["message_id"], text=text, disable_web_page_preview=True)
+              message_id=message["message_id"], text=text, disable_web_page_preview=True,
+              **extra)
     except RuntimeError as e:
         print(f"Couldn't edit message {message['message_id']}: {e}")

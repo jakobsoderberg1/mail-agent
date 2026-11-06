@@ -54,8 +54,26 @@ def activity_since(since: datetime) -> list[dict]:
 
 def add_proposal(proposal: dict) -> str:
     ref = db().collection("proposals").document()
-    ref.set({**proposal, "status": "pending", "created_at": now()})
+    # sent_at=None marks "not on Telegram yet". Proposals from before this field existed
+    # have no sent_at at all and count as already sent, so they are never re-sent.
+    ref.set({**proposal, "status": "pending", "created_at": now(), "sent_at": None})
     return ref.id
+
+
+def mark_proposal_sent(proposal_id: str, message_id: int | None) -> None:
+    db().collection("proposals").document(proposal_id).update(
+        {"sent_at": now(), "telegram_message_id": message_id})
+
+
+def has_similar_proposal(summary: str, start: str) -> bool:
+    """A pending or declined proposal with the same title (case/space-insensitive) and start."""
+    key = summary.strip().lower()
+    query = db().collection("proposals").where(filter=FieldFilter("start", "==", start))
+    return any(
+        d.get("status") in ("pending", "declined")
+        and (d.get("summary") or "").strip().lower() == key
+        for d in (doc.to_dict() for doc in query.stream())
+    )
 
 
 def pending_proposals() -> list[tuple[str, dict]]:

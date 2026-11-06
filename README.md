@@ -9,8 +9,10 @@ of `agent.py`; `--dry-run` prints each email's scores so you can tune them.
 - **Everything else** → marked read, one-line summary saved for the debrief
 - **Events** → proposed as calendar events with ✅ Add / ❌ Skip buttons.
   Sent right away if the event is before the next debrief, otherwise in the debrief.
+  Each proposal is sent once; an untapped one expires (buttons removed) when the event
+  starts. Repeat emails about an event you already have pending or skipped are ignored.
 - **Morning debrief** → 07:00 Mon–Fri (Europe/Stockholm) on Telegram: alerts, calendar
-  changes, every email handled, and pending approvals. Weekend activity rolls into Monday.
+  changes, every email handled, and new event proposals. Weekend activity rolls into Monday.
 
 Button taps are picked up by the next 15-minute run (no web server needed), so it can take
 up to 15 minutes for an approved event to appear.
@@ -32,8 +34,6 @@ up to 15 minutes for an approved event to appear.
 5. **Deploy**: `PROJECT_ID=your-project ./deploy.sh`
 
 Run once to test: `gcloud run jobs execute mail-agent-triage --region=europe-west1 --wait`
-
-# <<<<<<< HEAD
 
 ## Deploy on Railway (instead of Cloud Run)
 

@@ -105,12 +105,12 @@ DRY_RUN = False
 dry_activity: list[dict] = []
 
 
-def _send(text: str, buttons: list[list[dict]] | None = None) -> None:
+def _send(text: str, buttons: list[list[dict]] | None = None) -> int | None:
     if DRY_RUN:
         labels = "  ".join(f"[{b['text']}]" for row in buttons or [] for b in row)
         print(f"\n[dry-run] Telegram message:\n{text}" + (f"\n{labels}" if labels else ""))
-    else:
-        telegram_bot.send(text, buttons=buttons)
+        return None
+    return telegram_bot.send(text, buttons=buttons)
 
 
 def _log(kind: str, **fields) -> None:
@@ -138,7 +138,7 @@ def proposal_start(p: dict) -> datetime | None:
     return start if start.tzinfo else start.replace(tzinfo=TZ)
 
 
-def send_proposal(proposal_id: str, p: dict) -> None:
+def format_proposal(p: dict) -> str:
     when = f"{p['start']} → {p['end']}" + (" (all day)" if p.get("all_day") else "")
     lines = [f"📅 <b>{html.escape(p['summary'])}</b>", html.escape(when)]
     if p.get("location"):
@@ -149,10 +149,18 @@ def send_proposal(proposal_id: str, p: dict) -> None:
         lines.append(f"⚠️ Overlaps: {html.escape(', '.join(p['conflicts']))}")
     if p.get("email_subject"):
         lines.append(f"<i>From email: {html.escape(p['email_subject'])}</i>")
-    _send("\n".join(lines), buttons=[[
+    return "\n".join(lines)
+
+
+def send_proposal(proposal_id: str, p: dict) -> None:
+    """Send a proposal to Telegram. Each proposal is sent exactly once."""
+    message_id = _send(format_proposal(p), buttons=[[
         {"text": "✅ Add", "callback_data": f"approve:{proposal_id}"},
         {"text": "❌ Skip", "callback_data": f"decline:{proposal_id}"},
     ]])
+    p["sent_at"] = store.now()
+    if not DRY_RUN:
+        store.mark_proposal_sent(proposal_id, message_id)
 
 
 @cache
@@ -181,6 +189,15 @@ def extract_events(email_text: str) -> list[Event]:
     return response.parsed_output.events
 
 
+def _is_duplicate(p: dict) -> bool:
+    if not DRY_RUN:
+        return store.has_similar_proposal(p["summary"], p["start"])
+    # Dry runs stay off Firestore, so only compare with this run's own proposals.
+    key = (p["summary"].strip().lower(), p["start"])
+    return any((i["proposal"]["summary"].strip().lower(), i["proposal"]["start"]) == key
+               for i in dry_activity if i["kind"] == "dry_proposal")
+
+
 def propose_event(event: Event, email: dict) -> None:
     p = {**event.model_dump(), "message_id": email["id"], "email_subject": email["subject"]}
     starts = proposal_start(p)
@@ -188,6 +205,9 @@ def propose_event(event: Event, email: dict) -> None:
         print(f"Unparseable start {p['start']!r}; skipping {p['summary']!r}.")
         return
     if starts < store.now():
+        return
+    if _is_duplicate(p):
+        print(f"Already proposed or skipped: {p['summary']!r} at {p['start']}.")
         return
     ends = proposal_start({"start": p["end"]}) or starts + timedelta(hours=1)
     existing = google_api.list_events(starts.isoformat(), ends.isoformat())
