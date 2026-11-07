@@ -55,6 +55,18 @@ def calendar():
     return build("calendar", "v3", credentials=_credentials(), cache_discovery=False)
 
 
+# Headers that mark bulk or machine-sent mail; fetched so triage can rule those out cheaply.
+AUTOMATION_HEADERS = ["List-Unsubscribe", "List-Id", "Precedence", "Auto-Submitted"]
+
+
+@cache
+def own_addresses() -> frozenset[str]:
+    """The account's own address plus its send-as aliases, lowercase."""
+    me = gmail().users().getProfile(userId="me").execute()["emailAddress"]
+    aliases = gmail().users().settings().sendAs().list(userId="me").execute().get("sendAs", [])
+    return frozenset(a.lower() for a in [me, *(s["sendAsEmail"] for s in aliases)])
+
+
 def _header(headers: list[dict], name: str) -> str:
     return next((h["value"] for h in headers if h["name"].lower() == name.lower()), "")
 
@@ -110,12 +122,14 @@ def unprocessed_unread(limit: int = 50, dry_run: bool = False) -> list[dict]:
     for ref in resp.get("messages", []):
         msg = gmail().users().messages().get(
             userId="me", id=ref["id"], format="metadata",
-            metadataHeaders=["From", "Subject", "Date"],
+            metadataHeaders=["From", "To", "Subject", "Date", *AUTOMATION_HEADERS],
         ).execute()
         h = msg["payload"]["headers"]
         emails.append({
             "id": msg["id"],
             "from": _header(h, "From"),
+            "to": _header(h, "To"),
+            "automation": {name.lower(): _header(h, name) for name in AUTOMATION_HEADERS},
             "subject": _header(h, "Subject"),
             "date": _header(h, "Date"),
             "snippet": msg.get("snippet", ""),

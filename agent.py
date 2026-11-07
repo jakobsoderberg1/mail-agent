@@ -1,8 +1,9 @@
 """Email triage: TypeSafe Jev classifies every email, Claude extracts calendar events."""
 
 import html
+import re
 from datetime import datetime, timedelta
-from email.utils import parseaddr
+from email.utils import getaddresses, parseaddr
 from functools import cache
 from zoneinfo import ZoneInfo
 
@@ -24,8 +25,17 @@ ALERT_AT = 0.7  # important >= this: phone alert, left unread
 SUMMARY_AT = 0.5
 EVENT_AT = 0.6  # shipping notifications scored ~0.5
 BILL_AT = 0.6  # bills and payment requests stay unread
+PERSONAL_AT = 0.6  # written by a person to you: always alerts (see is_personal)
 BILLING_LABEL = "billing"
 IMPORTANT_LABEL = "Important mail"  # "Important" is reserved by Gmail's own label
+
+# Addresses that forward into this inbox; the Gmail address and send-as aliases are added
+# automatically. Lowercase.
+MY_ADDRESSES = ["jakob.soderberg.4008@student.lu.se", "ja4008so-s@student.lu.se"]
+# Local parts (before the @) of machine senders, never treated as a person.
+AUTOMATED_SENDER = re.compile(
+    r"^(.*[._-])?(no[._-]?reply|do[._-]?not[._-]?reply|notifications?|notify|mailer-daemon|postmaster|"
+    r"bounces?|automated|alerts?)([._+-].*)?$")
 
 # Always alert for these, whatever Jev scores: (sender address, text in subject), lowercase.
 ALWAYS_ALERT = [("no-reply@ladok.se", "resultat")]  # new exam results scored ~0.66
@@ -56,6 +66,15 @@ QUESTIONS = {
             "false": "A newsletter or digest listing activities and events, a shipping or "
                      "delivery notification, a marketing event, a sale ending, or something in "
                      "the past, a deadline for school / university.",
+        },
+    ),
+    "personal": Noul(
+        instructions="Was this email written by a person, personally to the recipient?",
+        criteria={
+            "true": "A message a real person wrote to the recipient: a question, a reply, a "
+                    "request, a personal note, including short or casual ones.",
+            "false": "Automated or templated mail sent on someone's behalf, newsletters, "
+                     "announcements to a group, marketing, or notifications from a system.",
         },
     ),
     "bill": Noul(
@@ -229,20 +248,42 @@ def propose_event(event: Event, email: dict) -> None:
         send_proposal(proposal_id, p)
 
 
+def _my_addresses() -> set[str]:
+    return set(google_api.own_addresses()) | {a.lower() for a in MY_ADDRESSES}
+
+
+def is_personal(email: dict, scores: dict[str, float]) -> bool:
+    """From a person, addressed to me in To (not only Cc), not via a list or a machine."""
+    h = email.get("automation", {})
+    if h.get("list-unsubscribe") or h.get("list-id"):
+        return False
+    if h.get("precedence", "").strip().lower() in ("bulk", "list", "junk"):
+        return False
+    if h.get("auto-submitted", "no").strip().lower() not in ("", "no"):
+        return False
+    sender = parseaddr(email["from"])[1].lower()
+    mine = _my_addresses()
+    if sender in mine or AUTOMATED_SENDER.match(sender.partition("@")[0]):
+        return False
+    to = {a.lower() for _, a in getaddresses([email.get("to", "")])}
+    return bool(to & mine) and scores["personal"] >= PERSONAL_AT
+
+
 def handle_email(email: dict) -> None:
     text = google_api.read_email(email["id"])
     scores = classify(text)
     address = parseaddr(email["from"])[1].lower()
     rule = any(address == a and s in email["subject"].lower() for a, s in ALWAYS_ALERT)
+    personal = is_personal(email, scores)
     print(f"{email['subject'][:60]!r}: " + ", ".join(f"{k}={v:.2f}" for k, v in scores.items())
-          + (" (ALWAYS_ALERT rule)" if rule else ""))
-    if rule:
+          + (" (ALWAYS_ALERT rule)" if rule else "") + (" (personal rule)" if personal else ""))
+    if rule or personal:
         scores["important"] = 1.0
     important = scores["important"]
     sender = parseaddr(email["from"])[0] or address
 
     if important >= ALERT_AT:
-        _send(f"<b>{html.escape(sender)}</b>: {html.escape(email['subject'])}\n"
+        _send(("👤 " if personal else "") + f"<b>{html.escape(sender)}</b>: {html.escape(email['subject'])}\n"
               f"{html.escape(email['snippet'])}")
         _log("notified", message_id=email["id"], title=sender, message=email["subject"])
 

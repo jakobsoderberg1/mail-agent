@@ -5,7 +5,9 @@ scores every email (important? worth a summary line? contains an event?) and Cla
 only called to pull out event details when Jev thinks there is one. Thresholds are at the top
 of `agent.py`; `--dry-run` prints each email's scores so you can tune them.
 
-- **Important email** → instant Telegram alert (left unread in the inbox)
+- **Important email** → instant Telegram alert, left unread and moved to "Important mail"
+- **Email a person wrote to you** (you're in To, not via a list or a no-reply sender) →
+  always alerts, marked 👤, whatever the importance score
 - **Everything else** → marked read, one-line summary saved for the debrief
 - **Events** → proposed as calendar events with ✅ Add / ❌ Skip buttons.
   Sent right away if the event is before the next debrief, otherwise in the debrief.
