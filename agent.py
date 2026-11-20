@@ -2,6 +2,7 @@
 
 import html
 import re
+import traceback
 from datetime import datetime, timedelta
 from email.utils import getaddresses, parseaddr
 from functools import cache
@@ -288,8 +289,14 @@ def handle_email(email: dict) -> None:
         _log("notified", message_id=email["id"], title=sender, message=email["subject"])
 
     if scores["event"] >= EVENT_AT:
-        for event in extract_events(text):
-            propose_event(event, email)
+        # Claude/Calendar can fail (overload, 5xx). Don't let that stop the email from
+        # being labelled processed, or the alert above would be re-sent every run.
+        try:
+            for event in extract_events(text):
+                propose_event(event, email)
+        except Exception:
+            print(f"Event step failed for {email['subject'][:60]!r}; continuing:")
+            traceback.print_exc()
 
     mark_read = important < ALERT_AT and scores["bill"] < BILL_AT
     if mark_read and DRY_RUN:
@@ -311,5 +318,15 @@ def handle_email(email: dict) -> None:
 
 
 def run_triage(emails: list[dict]) -> None:
+    """Handle each email on its own so one failure doesn't skip the rest of the batch.
+    The first error is re-raised at the end so main still reports it."""
+    first_error = None
     for email in emails:
-        handle_email(email)
+        try:
+            handle_email(email)
+        except Exception as e:
+            print(f"Failed on {email.get('subject', '')[:60]!r}; skipping:")
+            traceback.print_exc()
+            first_error = first_error or e
+    if first_error:
+        raise first_error
